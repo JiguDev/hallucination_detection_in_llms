@@ -1,0 +1,7 @@
+models:
+  baseline: distilgpt2
+  rag: distilgpt2
+
+retrieval:
+  local_k: 3
+  web_k: 4

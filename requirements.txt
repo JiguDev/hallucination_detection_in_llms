@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+transformers
+torch
+streamlit
+requests
+pydantic
+python-dotenv
+scikit-learn
+PyYAML
