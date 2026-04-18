@@ -69,6 +69,15 @@ if st.button("Submit"):
     st.write(f"Winner: **{eval_res['winner'].upper()}**")
     st.caption(eval_res["summary"])
 
+    with st.expander("Feedback & Improvement Data (Saved to Logs)"):
+        st.markdown("#### Baseline Model Feedback")
+        st.write(f"**Incorrect Info:** {eval_res['baseline'].get('incorrect_info', 'None')}")
+        st.write(f"**How to Improve:** {eval_res['baseline'].get('improvement_feedback', 'None')}")
+        st.markdown("---")
+        st.markdown("#### RAG / Fine-tuned Model Feedback")
+        st.write(f"**Incorrect Info:** {eval_res['rag'].get('incorrect_info', 'None')}")
+        st.write(f"**How to Improve:** {eval_res['rag'].get('improvement_feedback', 'None')}")
+
     with st.expander("Evidence used by evaluator"):
         st.markdown("**Baseline supporting sources**")
         for src in eval_res["baseline"].get("supporting_sources", []):

@@ -1,6 +1,6 @@
 models:
   baseline: distilgpt2
-  rag: distilgpt2
+  rag: Qwen/Qwen1.5-1.8B-Chat
 
 retrieval:
   local_k: 3

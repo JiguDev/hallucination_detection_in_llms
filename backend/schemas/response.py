@@ -14,6 +14,8 @@ class EvaluationScore(BaseModel):
 	confidence: float
 	explanation: str
 	supporting_sources: list[str] = Field(default_factory=list)
+	incorrect_info: str = "None"
+	improvement_feedback: str = "None"
 
 
 class EvaluateResponse(BaseModel):

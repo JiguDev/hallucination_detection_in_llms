@@ -1,4 +1,4 @@
-from transformers import pipeline
+from transformers import AutoModelForCausalLM, AutoTokenizer
 from backend.retrieval.retriever import Retriever
 from backend.retrieval.web_retriever import WebRetriever
 from backend.core.config import config
@@ -7,11 +7,9 @@ from backend.utils.prompts import rag_prompt
 
 class RAGService:
     def __init__(self):
-        model_name = config.get("models", {}).get("rag", "distilgpt2")
-        self.generator = pipeline(
-            "text-generation",
-            model=model_name
-        )
+        model_name = config.get("models", {}).get("rag", "Qwen/Qwen1.5-0.5B-Chat")
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+        self.model = AutoModelForCausalLM.from_pretrained(model_name)
         self.retriever = Retriever()
         self.web = WebRetriever()
         self.local_k = int(config.get("retrieval", {}).get("local_k", 3))
@@ -38,10 +36,21 @@ class RAGService:
                 "none",
             )
 
-        prompt = rag_prompt(context, query)
-        out = self.generator(prompt, max_new_tokens=220, do_sample=False)[0]
-        text = out.get("generated_text", "").strip()
-        answer = text[len(prompt):].strip() if text.startswith(prompt) else text
+        prompt_messages = rag_prompt(context, query)
+        text = self.tokenizer.apply_chat_template(prompt_messages, tokenize=False, add_generation_prompt=True)
+        inputs = self.tokenizer(text, return_tensors="pt", truncation=True, max_length=1024)
+        
+        out = self.model.generate(
+            **inputs, 
+            max_new_tokens=400, 
+            repetition_penalty=1.1, 
+            do_sample=True,
+            temperature=0.7,
+            top_p=0.9
+        )
+        
+        generated_ids = out[0][inputs['input_ids'].shape[1]:]
+        answer = self.tokenizer.decode(generated_ids, skip_special_tokens=True).strip()
 
         sources = [s.url for s in web_sources]
         retrieved_context = local_docs + web_docs
