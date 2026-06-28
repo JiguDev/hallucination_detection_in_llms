@@ -11,7 +11,7 @@ class RAGService:
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         self.model = AutoModelForCausalLM.from_pretrained(model_name)
         self.retriever = Retriever()
-        self.web = WebRetriever()
+        self.web = WebRetriever(model=self.model, tokenizer=self.tokenizer)
         self.local_k = int(config.get("retrieval", {}).get("local_k", 3))
         self.web_k = int(config.get("retrieval", {}).get("web_k", 4))
 

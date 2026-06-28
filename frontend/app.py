@@ -17,7 +17,7 @@ if st.button("Submit"):
         st.stop()
 
     with st.spinner("Generating baseline and RAG answers..."):
-        res = requests.post(f"{API}/generate", json={"query": query}, timeout=120).json()
+        res = requests.post(f"{API}/generate", json={"query": query}, timeout=600).json()
 
     col1, col2 = st.columns(2)
 
@@ -48,7 +48,7 @@ if st.button("Submit"):
                 "rag_answer": res["rag"],
                 "rag_sources": res.get("sources", []),
             },
-            timeout=120,
+            timeout=600,
         ).json()
 
     st.markdown("---")

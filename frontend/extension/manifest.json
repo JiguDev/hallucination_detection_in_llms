@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "AI Hallucination Detector",
+  "version": "1.0",
+  "description": "Fact-check AI generated content using Wikipedia evidence via RAG backend.",
+  "permissions": [
+    "contextMenus",
+    "activeTab",
+    "scripting"
+  ],
+  "host_permissions": [
+    "http://localhost:8000/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Check AI Hallucination"
+  }
+}

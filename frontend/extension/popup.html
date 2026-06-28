@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Hallucination Detector</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="logo-container">
+                <div class="logo-icon"></div>
+                <h1>Fact-Check AI</h1>
+            </div>
+            <p class="subtitle">Detect hallucinations using RAG evidence</p>
+        </header>
+
+        <main>
+            <div class="input-group">
+                <label for="prompt">Prompt / Question (Optional)</label>
+                <textarea id="prompt" rows="2" placeholder="e.g. What is the capital of France?"></textarea>
+            </div>
+            
+            <div class="input-group">
+                <label for="ai-response">AI Response to Check</label>
+                <textarea id="ai-response" rows="4" placeholder="Paste the AI's response here..."></textarea>
+            </div>
+
+            <button id="analyze-btn">
+                <span class="btn-text">Analyze Claim</span>
+                <div class="loader hidden"></div>
+            </button>
+
+            <div id="result-container" class="result-card hidden">
+                <div class="verdict-header">
+                    <h2 id="verdict-title">Verdict</h2>
+                    <span id="confidence-badge" class="badge">90%</span>
+                </div>
+                <p id="explanation-text" class="explanation"></p>
+                
+                <div id="sources-container" class="sources hidden">
+                    <h3>Supporting Sources</h3>
+                    <ul id="sources-list"></ul>
+                </div>
+            </div>
+        </main>
+    </div>
+    <script src="popup.js"></script>
+</body>
+</html>
