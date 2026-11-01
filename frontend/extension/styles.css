@@ -226,3 +226,58 @@ button:disabled {
 .status-success h2 { color: var(--success); }
 .status-warning h2 { color: var(--warning); }
 .status-error h2 { color: var(--error); }
+
+/* Ledger & Migration Styles */
+.ledger-section {
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 20px;
+}
+
+.ledger-section h3 {
+    font-size: 1rem;
+    font-weight: 600;
+    margin-bottom: 12px;
+}
+
+.secondary-btn {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text-main);
+    box-shadow: none;
+    margin-bottom: 16px;
+}
+
+.secondary-btn:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.migration-actions {
+    display: flex;
+    gap: 10px;
+}
+
+.migrate-btn {
+    flex: 1;
+    font-size: 0.85rem;
+    padding: 10px;
+}
+
+.migrate-btn.claude {
+    background: #d97757; /* approximate Claude brand color */
+}
+.migrate-btn.claude:hover {
+    background: #c26547;
+}
+
+.migrate-btn.gemini {
+    background: #4285f4; /* approximate Google brand color */
+}
+.migrate-btn.gemini:hover {
+    background: #3367d6;
+}
+
+#download-menu button:hover {
+    background: rgba(255, 255, 255, 0.1) !important;
+}

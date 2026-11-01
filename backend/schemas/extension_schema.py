@@ -10,3 +10,11 @@ class ExtensionEvaluateRequest(BaseModel):
 class ExtensionEvaluateResponse(BaseModel):
     score: EvaluationScore
     summary: str
+
+
+class ExtensionSummarizeRequest(BaseModel):
+    ledger_text: str = Field(..., description="The raw chat history to be summarized.")
+
+
+class ExtensionSummarizeResponse(BaseModel):
+    condensed_prompt: str

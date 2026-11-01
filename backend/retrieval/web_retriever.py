@@ -17,9 +17,10 @@ class WebRetriever:
     """Dynamically fetches web evidence and synthesizes it into an LLM Wiki."""
 
     def __init__(self, model=None, tokenizer=None):
-        self.wiki_dir = Path("d:/MTech/hallucination_project/data/wiki")
+        project_root = Path(__file__).resolve().parents[2]
+        self.wiki_dir = project_root / "data" / "wiki"
         self.wiki_dir.mkdir(parents=True, exist_ok=True)
-        self.schema_path = Path("d:/MTech/hallucination_project/backend/retrieval/LLM_WIKI_SCHEMA.md")
+        self.schema_path = Path(__file__).resolve().parent / "LLM_WIKI_SCHEMA.md"
         
         # Load schema
         self.schema = ""

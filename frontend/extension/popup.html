@@ -31,7 +31,7 @@
             </div>
 
             <button id="analyze-btn">
-                <span class="btn-text">Analyze Claim</span>
+                <span class="btn-text">Analyze</span>
                 <div class="loader hidden"></div>
             </button>
 
@@ -45,6 +45,42 @@
                 <div id="sources-container" class="sources hidden">
                     <h3>Supporting Sources</h3>
                     <ul id="sources-list"></ul>
+                </div>
+            </div>
+
+            <hr style="margin: 20px 0; border: 1px solid #eaeaea;">
+
+            <div class="ledger-section">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <h3>State Management & Migration</h3>
+                    <div class="ledger-tools" style="display: flex; gap: 8px;">
+                        <button id="copy-ledger-btn" title="Copy to clipboard" style="background: none; border: none; cursor: pointer; padding: 4px;">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        </button>
+                        <div style="position: relative;">
+                            <button id="download-ledger-btn" title="Download options" style="background: none; border: none; cursor: pointer; padding: 4px;">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                            </button>
+                            <div id="download-menu" class="hidden" style="position: absolute; right: 0; top: 24px; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 6px; padding: 4px; display: flex; flex-direction: column; min-width: 120px; z-index: 10;">
+                                <button id="dl-md-btn" style="background: transparent; border: none; color: white; padding: 6px 8px; text-align: left; font-size: 0.8rem; cursor: pointer; justify-content: flex-start;">Markdown (.md)</button>
+                                <button id="dl-pdf-btn" style="background: transparent; border: none; color: white; padding: 6px 8px; text-align: left; font-size: 0.8rem; cursor: pointer; justify-content: flex-start;">PDF (.pdf)</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="input-group">
+                    <label for="chat-ledger" style="display: none;">Continuous Chat Ledger</label>
+                    <textarea id="chat-ledger" rows="4" placeholder="Chat history will appear here..."></textarea>
+                </div>
+                
+                <button id="sync-chat-btn" class="secondary-btn">
+                    Sync Chat from Page
+                </button>
+
+                <div class="migration-actions" id="migration-buttons-container">
+                    <button id="migrate-chatgpt-btn" class="migrate-btn chatgpt hidden" style="background-color: #10a37f; color: white;">Migrate to ChatGPT</button>
+                    <button id="migrate-claude-btn" class="migrate-btn claude hidden">Migrate to Claude</button>
+                    <button id="migrate-gemini-btn" class="migrate-btn gemini hidden">Migrate to Gemini</button>
                 </div>
             </div>
         </main>
