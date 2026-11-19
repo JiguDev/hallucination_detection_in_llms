@@ -37,11 +37,23 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentSourcePlatform = 'unknown';
     let currentAttachedFiles = [];
 
+    // Helper to toggle Clear (X) icon visibility based on content presence
+    function updateClearBtnVisibility() {
+        if (!clearLedgerBtn) return;
+        const hasContent = (chatLedgerEl.value && chatLedgerEl.value.trim().length > 0) || (currentAttachedFiles && currentAttachedFiles.length > 0);
+        if (hasContent) {
+            clearLedgerBtn.classList.remove('hidden');
+        } else {
+            clearLedgerBtn.classList.add('hidden');
+        }
+    }
+
     // Helper to render file chips in the UI above the textarea
     function renderFileChips(files) {
         if (!files || files.length === 0) {
             filesPreviewContainer.classList.add('hidden');
             fileChipsList.innerHTML = '';
+            updateClearBtnVisibility();
             return;
         }
 
@@ -64,6 +76,7 @@ document.addEventListener('DOMContentLoaded', () => {
             `;
             fileChipsList.appendChild(chip);
         });
+        updateClearBtnVisibility();
     }
 
     // Dynamic Platform Detection
@@ -105,11 +118,16 @@ document.addEventListener('DOMContentLoaded', () => {
             if (result.sourcePlatform) {
                 currentSourcePlatform = result.sourcePlatform;
             }
+            updateClearBtnVisibility();
         });
     }
 
-    // Save ledger edits on change
+    // Initial check for clear button visibility
+    updateClearBtnVisibility();
+
+    // Save ledger edits on change & update clear icon
     chatLedgerEl.addEventListener('input', () => {
+        updateClearBtnVisibility();
         if (typeof chrome !== 'undefined' && chrome.storage) {
             chrome.storage.local.set({ chatLedger: chatLedgerEl.value });
         }
@@ -122,6 +140,7 @@ document.addEventListener('DOMContentLoaded', () => {
             currentAttachedFiles = [];
             renderFileChips([]);
             chatSummaryContainer.classList.add('hidden');
+            updateClearBtnVisibility();
             if (typeof chrome !== 'undefined' && chrome.storage) {
                 chrome.storage.local.remove(['chatLedger', 'attachedFiles']);
             }
@@ -659,6 +678,7 @@ document.addEventListener('DOMContentLoaded', () => {
         chatLedgerEl.value = ledger;
         currentAttachedFiles = files || [];
         renderFileChips(currentAttachedFiles);
+        updateClearBtnVisibility();
 
         let detected = 'unknown';
         const url = tab.url || '';
