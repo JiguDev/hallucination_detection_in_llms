@@ -64,3 +64,19 @@ models/*
 # OS temp files
 *.tmp
 *.temp
+
+# Research paper, reports, presentations, and draft artifacts
+*.pdf
+*.pptx
+*.docx
+*.tex
+*.cls
+*.png
+assets/
+scratch/
+d:/
+generate_*.py
+write_human_paper.py
+test_human_style.py
+plot_metrics.py
+update_*.py

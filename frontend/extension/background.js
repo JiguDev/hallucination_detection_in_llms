@@ -1,8 +1,15 @@
 chrome.runtime.onInstalled.addListener(() => {
-  chrome.contextMenus.create({
-    id: "checkHallucination",
-    title: "Check AI Hallucination",
-    contexts: ["selection"]
+  chrome.contextMenus.removeAll(() => {
+    chrome.contextMenus.create({
+      id: "checkHallucination",
+      title: "Check AI Hallucination",
+      contexts: ["selection"]
+    }, () => {
+      // Consume lastError to avoid Chrome logging unhandled errors
+      if (chrome.runtime.lastError) {
+        // Ignored
+      }
+    });
   });
 });
 
@@ -40,11 +47,10 @@ Explanation: ${data.score.explanation}
         args: [resultMessage]
       });
     })
-    .catch(error => {
-      console.error("Error checking hallucination:", error);
+    .catch(() => {
       chrome.scripting.executeScript({
         target: { tabId: tab.id },
-        func: () => alert("Error contacting the backend. Is FastAPI running on port 8000?")
+        func: () => alert("Backend server offline (localhost:8000).")
       });
     });
   }

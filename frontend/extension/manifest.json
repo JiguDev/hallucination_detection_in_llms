@@ -7,10 +7,17 @@
     "contextMenus",
     "activeTab",
     "scripting",
-    "storage"
+    "storage",
+    "unlimitedStorage"
   ],
   "host_permissions": [
-    "http://localhost:8000/*"
+    "http://localhost:8000/*",
+    "*://chatgpt.com/*",
+    "*://claude.ai/*",
+    "*://gemini.google.com/*",
+    "*://*.oaiusercontent.com/*",
+    "*://*.googleusercontent.com/*",
+    "*://*.anthropic.com/*"
   ],
   "background": {
     "service_worker": "background.js"
