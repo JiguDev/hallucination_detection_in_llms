@@ -115,10 +115,15 @@ button:hover {
     transform: translateY(-1px);
 }
 
-button:disabled {
-    opacity: 0.7;
-    cursor: not-allowed;
-    transform: none;
+button:disabled,
+.summarize-btn:disabled,
+.migrate-btn:disabled,
+.secondary-btn:disabled {
+    opacity: 0.35 !important;
+    cursor: not-allowed !important;
+    transform: none !important;
+    box-shadow: none !important;
+    filter: grayscale(0.7) !important;
 }
 
 .hidden {

@@ -36,6 +36,48 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let currentSourcePlatform = 'unknown';
     let currentAttachedFiles = [];
+    let currentActiveUrl = '';
+    let currentSyncedUrl = '';
+    let currentChatKey = 'chat_session_default';
+
+    // Helper: Safely query the active webpage tab in the browser window
+    async function getActiveWebTab() {
+        if (typeof chrome === 'undefined' || !chrome.tabs) return null;
+        try {
+            // Priority 1: Current window active tab (exact window user is interacting with)
+            const currentTabs = await chrome.tabs.query({ active: true, currentWindow: true });
+            if (currentTabs && currentTabs.length > 0 && currentTabs[0].url && !currentTabs[0].url.startsWith('chrome-extension://')) {
+                return currentTabs[0];
+            }
+        } catch (_) {}
+        try {
+            // Priority 2: Last focused window active tab
+            const focusedTabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+            if (focusedTabs && focusedTabs.length > 0 && focusedTabs[0].url && !focusedTabs[0].url.startsWith('chrome-extension://')) {
+                return focusedTabs[0];
+            }
+        } catch (_) {}
+        try {
+            // Priority 3: Any active web tab
+            const allActive = await chrome.tabs.query({ active: true });
+            const webTab = allActive.find(t => t.url && (t.url.startsWith('http://') || t.url.startsWith('https://')));
+            if (webTab) return webTab;
+            return allActive[0] || null;
+        } catch (_) {}
+        return null;
+    }
+
+    // Helper: Normalize URL to a unique chat conversation key
+    function getChatStorageKey(rawUrl) {
+        if (!rawUrl) return 'chat_session_default';
+        try {
+            const u = new URL(rawUrl);
+            const cleanPath = u.pathname.replace(/\/+$/, '') || '/';
+            return `chat_cache_${u.hostname.replace(/[^a-zA-Z0-9_-]/g, '_')}${cleanPath.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+        } catch (_) {
+            return `chat_cache_${rawUrl.split('?')[0].split('#')[0].replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+        }
+    }
 
     // Helper to toggle Clear (X) icon visibility based on content presence
     function updateClearBtnVisibility() {
@@ -48,12 +90,41 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // Controls enabled/disabled state of Summarize Chat and Migrate buttons
+    function updateActionButtonsState() {
+        const isSynced = Boolean(
+            chatLedgerEl.value && 
+            chatLedgerEl.value.trim().length > 0 && 
+            currentSyncedUrl && 
+            currentSyncedUrl === currentActiveUrl
+        );
+
+        if (summarizeChatBtn) {
+            summarizeChatBtn.disabled = !isSynced;
+            summarizeChatBtn.title = isSynced 
+                ? "Generate executive summary for active chat" 
+                : "Click 'Sync Chat & Files' first to enable summarization";
+        }
+
+        const migrateBtns = [migrateClaudeBtn, migrateGeminiBtn, migrateChatgptBtn];
+        migrateBtns.forEach(btn => {
+            if (btn) {
+                btn.disabled = !isSynced;
+                btn.title = isSynced 
+                    ? "Migrate active chat context to target platform" 
+                    : "Click 'Sync Chat & Files' first to enable migration";
+            }
+        });
+
+        updateClearBtnVisibility();
+    }
+
     // Helper to render file chips in the UI above the textarea
     function renderFileChips(files) {
         if (!files || files.length === 0) {
             filesPreviewContainer.classList.add('hidden');
             fileChipsList.innerHTML = '';
-            updateClearBtnVisibility();
+            updateActionButtonsState();
             return;
         }
 
@@ -76,73 +147,103 @@ document.addEventListener('DOMContentLoaded', () => {
             `;
             fileChipsList.appendChild(chip);
         });
-        updateClearBtnVisibility();
+        updateActionButtonsState();
     }
 
-    // Dynamic Platform Detection
-    if (typeof chrome !== 'undefined' && chrome.tabs) {
-        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-            if (tabs && tabs[0]) {
-                const url = tabs[0].url || '';
-                if (url.includes('chatgpt.com')) {
-                    currentSourcePlatform = 'chatgpt';
-                    migrateClaudeBtn.classList.remove('hidden');
-                    migrateGeminiBtn.classList.remove('hidden');
-                } else if (url.includes('claude.ai')) {
-                    currentSourcePlatform = 'claude';
-                    migrateChatgptBtn.classList.remove('hidden');
-                    migrateGeminiBtn.classList.remove('hidden');
-                } else if (url.includes('gemini.google.com')) {
-                    currentSourcePlatform = 'gemini';
-                    migrateChatgptBtn.classList.remove('hidden');
-                    migrateClaudeBtn.classList.remove('hidden');
-                } else {
-                    migrateChatgptBtn.classList.remove('hidden');
-                    migrateClaudeBtn.classList.remove('hidden');
-                    migrateGeminiBtn.classList.remove('hidden');
-                }
-            }
-        });
-    }
+    // Initialize Conversation Context Scoped to Active Tab URL
+    async function initActiveConversation() {
+        const tab = await getActiveWebTab();
+        if (!tab || !tab.url) {
+            updateActionButtonsState();
+            return;
+        }
 
-    // Load existing state from storage
-    if (typeof chrome !== 'undefined' && chrome.storage) {
-        chrome.storage.local.get(['chatLedger', 'attachedFiles', 'sourcePlatform'], (result) => {
-            if (result.chatLedger) {
-                chatLedgerEl.value = result.chatLedger;
-            }
-            if (result.attachedFiles && Array.isArray(result.attachedFiles) && result.attachedFiles.length > 0) {
-                currentAttachedFiles = result.attachedFiles;
-                renderFileChips(currentAttachedFiles);
-            }
-            if (result.sourcePlatform) {
-                currentSourcePlatform = result.sourcePlatform;
-            }
-            updateClearBtnVisibility();
-        });
-    }
+        const rawUrl = tab.url;
+        currentActiveUrl = rawUrl.split('?')[0].split('#')[0];
+        currentChatKey = getChatStorageKey(currentActiveUrl);
 
-    // Initial check for clear button visibility
-    updateClearBtnVisibility();
+        if (rawUrl.includes('chatgpt.com')) {
+            currentSourcePlatform = 'chatgpt';
+            migrateClaudeBtn.classList.remove('hidden');
+            migrateGeminiBtn.classList.remove('hidden');
+            migrateChatgptBtn.classList.add('hidden');
+        } else if (rawUrl.includes('claude.ai')) {
+            currentSourcePlatform = 'claude';
+            migrateChatgptBtn.classList.remove('hidden');
+            migrateGeminiBtn.classList.remove('hidden');
+            migrateClaudeBtn.classList.add('hidden');
+        } else if (rawUrl.includes('gemini.google.com')) {
+            currentSourcePlatform = 'gemini';
+            migrateChatgptBtn.classList.remove('hidden');
+            migrateClaudeBtn.classList.remove('hidden');
+            migrateGeminiBtn.classList.add('hidden');
+        } else {
+            migrateChatgptBtn.classList.remove('hidden');
+            migrateClaudeBtn.classList.remove('hidden');
+            migrateGeminiBtn.classList.remove('hidden');
+        }
 
-    // Save ledger edits on change & update clear icon
-    chatLedgerEl.addEventListener('input', () => {
-        updateClearBtnVisibility();
         if (typeof chrome !== 'undefined' && chrome.storage) {
-            chrome.storage.local.set({ chatLedger: chatLedgerEl.value });
+            // Remove legacy unscoped keys so they cannot pollute chat state
+            chrome.storage.local.remove(['chatLedger', 'attachedFiles', 'lastSyncedUrl']);
+
+            // Load strictly this conversation's scoped cache
+            chrome.storage.local.get([currentChatKey], (result) => {
+                const data = result[currentChatKey];
+                if (data && data.url === currentActiveUrl && (data.ledger || (data.files && data.files.length > 0))) {
+                    currentSyncedUrl = data.url;
+                    chatLedgerEl.value = data.ledger || '';
+                    currentAttachedFiles = data.files || [];
+                    renderFileChips(currentAttachedFiles);
+                    if (data.summary) {
+                        summaryContentEl.innerText = data.summary;
+                        chatSummaryContainer.classList.remove('hidden');
+                    } else {
+                        chatSummaryContainer.classList.add('hidden');
+                    }
+                } else {
+                    // Chat has not been synced yet: keep clean and disable action buttons!
+                    currentSyncedUrl = '';
+                    chatLedgerEl.value = '';
+                    currentAttachedFiles = [];
+                    renderFileChips([]);
+                    chatSummaryContainer.classList.add('hidden');
+                }
+                updateActionButtonsState();
+            });
+        }
+    }
+
+    initActiveConversation();
+
+    // Save manual ledger edits scoped to currentChatKey
+    chatLedgerEl.addEventListener('input', () => {
+        updateActionButtonsState();
+        if (typeof chrome !== 'undefined' && chrome.storage && currentChatKey) {
+            chrome.storage.local.get([currentChatKey], (result) => {
+                const existing = result[currentChatKey] || {};
+                existing.url = currentActiveUrl;
+                existing.ledger = chatLedgerEl.value;
+                existing.files = currentAttachedFiles;
+                existing.platform = currentSourcePlatform;
+                const update = {};
+                update[currentChatKey] = existing;
+                chrome.storage.local.set(update);
+            });
         }
     });
 
-    // Clear (X) Button to clear textbox, files queue, and stored session
+    // Clear (X) Button to clear textbox, files queue, summary, and scoped cache for this chat
     if (clearLedgerBtn) {
         clearLedgerBtn.addEventListener('click', () => {
             chatLedgerEl.value = '';
             currentAttachedFiles = [];
+            currentSyncedUrl = '';
             renderFileChips([]);
             chatSummaryContainer.classList.add('hidden');
-            updateClearBtnVisibility();
-            if (typeof chrome !== 'undefined' && chrome.storage) {
-                chrome.storage.local.remove(['chatLedger', 'attachedFiles']);
+            updateActionButtonsState();
+            if (typeof chrome !== 'undefined' && chrome.storage && currentChatKey) {
+                chrome.storage.local.remove([currentChatKey, 'chatLedger', 'attachedFiles', 'lastSyncedUrl']);
             }
         });
     }
@@ -218,100 +319,187 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // Core Chat & Image Extraction Engine (Executed in page context via scripting)
+    // Core Chat & Image Extraction Engine (Executed strictly in current active thread context)
     async function extractChatFromPage(tab) {
+        if (!tab || !tab.id) return false;
         let results = null;
         try {
             results = await chrome.scripting.executeScript({
                 target: { tabId: tab.id },
                 func: async () => {
                     try {
-                        // 1. Identify scrollable containers in the active chat page
-                        function findScrollableElements() {
-                            const found = [];
+                        const hostname = window.location.hostname;
+                        const pageUrl = window.location.href;
+
+                        // 1. Helper to ensure elements are active, not in navigation sidebar or hidden
+                        function isTurnElementValid(el) {
+                            if (!el) return false;
+                            if (el.closest('nav, [role="navigation"]')) return false;
+                            if (el.hasAttribute('hidden')) return false;
                             try {
-                                const elements = document.querySelectorAll('main, main div, div[class*="overflow"], div[class*="react-scroll"], [data-testid="conversation-panel"]');
-                                elements.forEach(el => {
-                                    if (el && el.scrollHeight > el.clientHeight + 40) {
-                                        found.push(el);
-                                    }
-                                });
-                            } catch (_) {}
-                            return found;
+                                const style = window.getComputedStyle(el);
+                                if (style.display === 'none' || style.visibility === 'hidden') return false;
+                            } catch (_) {
+                                return false;
+                            }
+                            return true;
                         }
 
-                        // Scroll upward to load historical turns from the beginning
-                        let prevTurnCount = 0;
-                        let stableCycles = 0;
+                        // 2. Identify the true conversation scroll container by tracing from message elements
+                        function findConversationScroller() {
+                            const msgEls = Array.from(document.querySelectorAll('[data-message-author-role], article, .markdown, .font-user-message, user-query'));
+                            for (const msg of msgEls) {
+                                let p = msg.parentElement;
+                                while (p && p !== document.body && p !== document.documentElement) {
+                                    try {
+                                        const s = window.getComputedStyle(p);
+                                        const oy = s.overflowY || s.overflow || '';
+                                        if ((oy === 'auto' || oy === 'scroll') && p.scrollHeight > p.clientHeight + 25) {
+                                            return p;
+                                        }
+                                    } catch (_) {}
+                                    p = p.parentElement;
+                                }
+                            }
+
+                            const mainEl = document.querySelector('main') || document.body;
+                            const scrollables = Array.from(mainEl.querySelectorAll('div')).filter(el => {
+                                if (el.closest('nav, [role="navigation"]')) return false;
+                                try {
+                                    const s = window.getComputedStyle(el);
+                                    const oy = s.overflowY || s.overflow || '';
+                                    return (oy === 'auto' || oy === 'scroll') && el.scrollHeight > el.clientHeight + 40;
+                                } catch (_) { return false; }
+                            });
+
+                            if (scrollables.length > 0) {
+                                scrollables.sort((a, b) => (b.clientHeight * b.clientWidth) - (a.clientHeight * a.clientWidth));
+                                return scrollables[0];
+                            }
+
+                            return document.scrollingElement || document.documentElement || document.body;
+                        }
+
+                        const activeScroller = findConversationScroller();
+
+                        // 3. Scroll all the way up to load the entire conversation from the beginning
+                        let prevScrollHeight = 0;
+                        let stableScrollCount = 0;
                         const maxScrollSteps = 12;
 
                         for (let s = 0; s < maxScrollSteps; s++) {
+                            if (activeScroller && activeScroller !== document.body && activeScroller !== document.documentElement) {
+                                activeScroller.scrollTop = 0;
+                                activeScroller.dispatchEvent(new Event('scroll', { bubbles: true }));
+                            }
                             window.scrollTo(0, 0);
-                            if (document.documentElement) document.documentElement.scrollTop = 0;
-                            if (document.body) document.body.scrollTop = 0;
 
-                            const scrollContainers = findScrollableElements();
-                            scrollContainers.forEach(el => {
-                                try {
-                                    el.scrollTop = 0;
-                                    el.dispatchEvent(new Event('scroll', { bubbles: true }));
-                                } catch (_) {}
-                            });
-
-                            // Click "Load earlier messages" / "Show more" buttons if present
+                            // Click "Load earlier messages" / "Show earlier" button if present
                             try {
                                 const buttons = document.querySelectorAll('button');
                                 for (const btn of buttons) {
+                                    if (btn.closest('nav, [role="navigation"]')) continue;
                                     const aria = (btn.getAttribute('aria-label') || '').toLowerCase();
                                     const text = (btn.innerText || '').toLowerCase();
-                                    if (aria.includes('load earlier') || text.includes('load earlier') || text.includes('load more messages')) {
+                                    if (aria.includes('load earlier') || text.includes('load earlier') || 
+                                        text.includes('load more messages') || text.includes('show earlier') ||
+                                        text.includes('show more messages')) {
                                         btn.click();
                                         break;
                                     }
                                 }
                             } catch (_) {}
 
-                            // Allow network request time to fetch and render previous turns
-                            await new Promise(r => setTimeout(r, 700));
+                            await new Promise(r => setTimeout(r, 600));
 
-                            const currentCount = document.querySelectorAll('article, [data-message-author-role], [data-testid^="conversation-turn-"], .font-user-message, user-query').length;
-                            if (currentCount > prevTurnCount) {
-                                prevTurnCount = currentCount;
-                                stableCycles = 0;
+                            const curHeight = activeScroller ? activeScroller.scrollHeight : 0;
+                            if (curHeight > prevScrollHeight) {
+                                prevScrollHeight = curHeight;
+                                stableScrollCount = 0;
                             } else {
-                                stableCycles++;
-                                if (stableCycles >= 3 && s >= 2) {
-                                    break;
-                                }
+                                stableScrollCount++;
+                                if (stableScrollCount >= 2 && s >= 1) break;
                             }
                         }
 
-                        // 2. Discover all conversation turn containers in document order
-                        let turnNodes = [];
-                        const hostname = window.location.hostname;
+                        // Restore scroll position down to bottom so all turns are mounted
+                        try {
+                            window.scrollTo(0, document.body.scrollHeight || 100000);
+                            if (activeScroller && activeScroller !== document.body && activeScroller !== document.documentElement) {
+                                activeScroller.scrollTop = activeScroller.scrollHeight;
+                                activeScroller.dispatchEvent(new Event('scroll', { bubbles: true }));
+                            }
+                        } catch (_) {}
+
+                        await new Promise(r => setTimeout(r, 400));
+
+                        // 4. Discover candidate message turn nodes
+                        let candidateTurns = [];
+                        const mainContainer = document.querySelector('main') || document.body;
 
                         if (hostname.includes('chatgpt.com')) {
-                            // Collect conversation turns: testIdTurns covers both user and assistant
-                            const testIdTurns = Array.from(document.querySelectorAll('[data-testid^="conversation-turn-"]'));
-                            const roleTurns = Array.from(document.querySelectorAll('[data-message-author-role]'));
+                            // In ChatGPT, [data-message-author-role] accurately separates each User query and AI response!
+                            const roleTurns = Array.from(mainContainer.querySelectorAll('[data-message-author-role]')).filter(isTurnElementValid);
+                            const testIdTurns = Array.from(mainContainer.querySelectorAll('[data-testid^="conversation-turn-"]')).filter(isTurnElementValid);
+                            const articles = Array.from(mainContainer.querySelectorAll('article')).filter(isTurnElementValid);
 
-                            if (testIdTurns.length > 0 && testIdTurns.length >= roleTurns.length) {
-                                turnNodes = testIdTurns;
-                            } else if (roleTurns.length > 0) {
-                                turnNodes = roleTurns;
+                            if (roleTurns.length > 0) {
+                                candidateTurns = roleTurns;
+                            } else if (testIdTurns.length > 0) {
+                                candidateTurns = testIdTurns;
+                            } else if (articles.length > 0) {
+                                candidateTurns = articles;
                             } else {
-                                const userElements = Array.from(document.querySelectorAll('.font-user-message, [data-testid="user-message"], div[class*="user"]'));
-                                const articles = Array.from(document.querySelectorAll('article'));
-                                const merged = Array.from(new Set([...userElements, ...articles]));
+                                const userElements = Array.from(mainContainer.querySelectorAll('.font-user-message, [data-testid="user-message"], div[class*="user-message"], .whitespace-pre-wrap')).filter(isTurnElementValid);
+                                const aiElements = Array.from(mainContainer.querySelectorAll('article, [class*="agent-turn"], [class*="assistant-turn"], .markdown')).filter(isTurnElementValid);
+                                const merged = Array.from(new Set([...userElements, ...aiElements]));
                                 merged.sort((a, b) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1));
-                                turnNodes = merged;
+                                candidateTurns = merged;
                             }
                         } else if (hostname.includes('claude.ai')) {
-                            turnNodes = Array.from(document.querySelectorAll('.font-user-message, .font-claude-message, [data-testid="user-message"]'));
+                            candidateTurns = Array.from(mainContainer.querySelectorAll('.font-user-message, .font-claude-message, [data-testid="user-message"]')).filter(isTurnElementValid);
                         } else if (hostname.includes('gemini.google.com')) {
-                            turnNodes = Array.from(document.querySelectorAll('user-query, model-response'));
+                            candidateTurns = Array.from(mainContainer.querySelectorAll('user-query, model-response')).filter(isTurnElementValid);
                         } else {
-                            turnNodes = Array.from(document.querySelectorAll('article, [data-message-author-role], [data-testid^="conversation-turn-"], .chat-message'));
+                            candidateTurns = Array.from(mainContainer.querySelectorAll('article, [data-message-author-role], [data-testid^="conversation-turn-"]')).filter(isTurnElementValid);
+                        }
+
+                        // Fallback to document search if mainContainer query had 0 elements
+                        if (candidateTurns.length === 0) {
+                            const docRoles = Array.from(document.querySelectorAll('[data-message-author-role]')).filter(isTurnElementValid);
+                            const docArticles = Array.from(document.querySelectorAll('article')).filter(isTurnElementValid);
+                            const docTestId = Array.from(document.querySelectorAll('[data-testid^="conversation-turn-"]')).filter(isTurnElementValid);
+                            const docClaude = Array.from(document.querySelectorAll('.font-user-message, .font-claude-message, [data-testid="user-message"]')).filter(isTurnElementValid);
+                            const docGemini = Array.from(document.querySelectorAll('user-query, model-response')).filter(isTurnElementValid);
+
+                            if (docRoles.length > 0) candidateTurns = docRoles;
+                            else if (docArticles.length > 0) candidateTurns = docArticles;
+                            else if (docTestId.length > 0) candidateTurns = docTestId;
+                            else if (docClaude.length > 0) candidateTurns = docClaude;
+                            else if (docGemini.length > 0) candidateTurns = docGemini;
+                        }
+
+                        // 5. Expand composite nodes if a turn node contains both a user message and assistant reply
+                        const discreteNodes = [];
+                        for (const node of candidateTurns) {
+                            const userSub = node.querySelector('[data-message-author-role="user"], .whitespace-pre-wrap, [data-testid="user-message"], .font-user-message');
+                            const aiSub = node.querySelector('.markdown, [data-message-author-role="assistant"], [class*="agent-turn"]');
+
+                            if (userSub && aiSub && userSub !== node && aiSub !== node) {
+                                // Node is an outer wrapper containing both turns: add both discretely
+                                discreteNodes.push(userSub);
+                                discreteNodes.push(aiSub);
+                            } else {
+                                discreteNodes.push(node);
+                            }
+                        }
+
+                        // Eliminate nested/duplicate nodes
+                        const turnNodes = [];
+                        for (const node of discreteNodes) {
+                            if (!turnNodes.some(existing => existing === node || existing.contains(node) || node.contains(existing))) {
+                                turnNodes.push(node);
+                            }
                         }
 
                         const sequentialFiles = [];
@@ -319,7 +507,6 @@ document.addEventListener('DOMContentLoaded', () => {
                         let userImgCount = 0;
                         let aiImgCount = 0;
 
-                        const FILE_PATTERN = /\b([a-zA-Z0-9_\-\.]+\.(zip|pdf|docx?|xlsx?|csv|json|txt|py|js|ts|tsx|jsx|html|css|tar|gz|rar|7z|xml|yaml|yml))\b/gi;
                         const typeMap = {
                             pdf: 'application/pdf',
                             zip: 'application/zip',
@@ -328,13 +515,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
                             xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                             csv: 'text/csv',
-                            txt: 'text/plain',
-                            json: 'application/json',
-                            py: 'text/x-python',
-                            js: 'text/javascript',
-                            ts: 'text/typescript',
-                            html: 'text/html',
-                            css: 'text/css'
+                            json: 'application/json'
                         };
 
                         let turnIndex = 1;
@@ -342,81 +523,103 @@ document.addEventListener('DOMContentLoaded', () => {
                             const node = turnNodes[i];
 
                             // Role identification
-                            const roleAttr = node.getAttribute('data-message-author-role') ||
-                                             (node.querySelector('[data-message-author-role="user"]') ? 'user' :
-                                             (node.querySelector('[data-message-author-role="assistant"]') ? 'assistant' : ''));
-
                             let isUser = false;
+                            const roleAttr = node.getAttribute('data-message-author-role');
                             if (roleAttr === 'user') {
                                 isUser = true;
                             } else if (roleAttr === 'assistant') {
                                 isUser = false;
+                            } else if (node.classList.contains('markdown') || node.querySelector('.markdown') !== null || node.tagName.toLowerCase() === 'model-response' || node.classList.contains('font-claude-message')) {
+                                isUser = false;
+                            } else if (node.classList.contains('whitespace-pre-wrap') || node.classList.contains('font-user-message') || node.tagName.toLowerCase() === 'user-query' || node.querySelector('[data-testid="user-message"]') !== null) {
+                                isUser = true;
+                            } else if (node.querySelector('[data-message-author-role="assistant"]')) {
+                                isUser = false;
+                            } else if (node.querySelector('[data-message-author-role="user"]')) {
+                                isUser = true;
                             } else {
-                                if (node.classList.contains('font-user-message') ||
-                                    node.tagName.toLowerCase() === 'user-query' ||
-                                    node.querySelector('[data-testid="user-message"]') !== null ||
-                                    node.querySelector('[class*="user-profile" i], [class*="user-avatar" i]') !== null) {
-                                    isUser = true;
-                                } else if (node.classList.contains('font-claude-message') ||
-                                           node.tagName.toLowerCase() === 'model-response' ||
-                                           node.querySelector('.markdown') !== null) {
-                                    isUser = false;
-                                } else {
-                                    isUser = (i % 2 === 0);
-                                }
+                                isUser = extractedTurns.length > 0 ? !extractedTurns[extractedTurns.length - 1].startsWith('User:') : true;
                             }
 
                             const role = isUser ? 'User' : 'Ai';
 
-                            // Text extraction preserving code blocks, lists, headers, tables
+                            // Text extraction preserving formatting
                             let text = '';
-                            const textContainer = isUser
-                                ? (node.querySelector('[data-message-author-role="user"]') || node.querySelector('div.whitespace-pre-wrap') || node.querySelector('.whitespace-normal') || node)
-                                : (node.querySelector('.markdown') || node.querySelector('[data-message-author-role="assistant"]') || node);
-
-                            if (textContainer) {
-                                const srElements = textContainer.querySelectorAll('.sr-only, [aria-hidden="true"].sr-only');
-                                const savedStyles = [];
-                                srElements.forEach(s => {
-                                    savedStyles.push({ el: s, display: s.style.display });
-                                    s.style.display = 'none';
-                                });
-
-                                text = (textContainer.innerText || textContainer.textContent || '').trim();
-
-                                savedStyles.forEach(s => {
-                                    s.el.style.display = s.display;
-                                });
+                            if (isUser) {
+                                const userContainer = node.classList.contains('whitespace-pre-wrap') ? node :
+                                                      (node.querySelector('[data-message-author-role="user"]') ||
+                                                      node.querySelector('[data-testid="user-message"]') ||
+                                                      node.querySelector('.font-user-message') ||
+                                                      node.querySelector('.whitespace-pre-wrap') ||
+                                                      node);
+                                if (userContainer) {
+                                    const hideEls = userContainer.querySelectorAll('.sr-only, [aria-hidden="true"].sr-only, button, [role="button"], svg, .tooltip');
+                                    const saved = [];
+                                    hideEls.forEach(el => { saved.push({ el, d: el.style.display }); el.style.display = 'none'; });
+                                    text = (userContainer.innerText || userContainer.textContent || '').trim();
+                                    saved.forEach(s => { s.el.style.display = s.d; });
+                                }
+                            } else {
+                                const aiContainer = node.classList.contains('markdown') ? node :
+                                                    (node.querySelector('.markdown') ||
+                                                    node.querySelector('[data-message-author-role="assistant"]') ||
+                                                    node.querySelector('article') ||
+                                                    node);
+                                if (aiContainer) {
+                                    const hideEls = aiContainer.querySelectorAll('.sr-only, [aria-hidden="true"].sr-only, button, [role="button"], svg, .tooltip');
+                                    const saved = [];
+                                    hideEls.forEach(el => { saved.push({ el, d: el.style.display }); el.style.display = 'none'; });
+                                    text = (aiContainer.innerText || aiContainer.textContent || '').trim();
+                                    saved.forEach(s => { s.el.style.display = s.d; });
+                                }
                             }
 
                             if (!text) {
                                 text = (node.innerText || node.textContent || '').trim();
                             }
 
-                            // Extract Images inside this turn (sequential User_img1, Ai_img1, etc.)
+                            // Strip reasoning/thought preambles
+                            if (!isUser && text) {
+                                text = text.replace(/^(?:Thought|Worked)\s+for\s+\d+\s*(?:s|seconds?|sec)[^\n]*\n+/i, '').trim();
+                            }
+
+                            // Anti-echo protection: Discard if AI turn text matches previous user text
+                            if (!isUser && text && extractedTurns.length > 0) {
+                                const lastTurn = extractedTurns[extractedTurns.length - 1];
+                                const lastClean = lastTurn.replace(/^User:\s*(\[[^\]]+\]\s*)?/, '').trim();
+                                if (text === lastClean || (text.length > 10 && lastClean === text)) {
+                                    continue;
+                                }
+                            }
+
+                            // Extract Images: search both inside node AND its parent element (for thumbnail wrappers)
                             const turnImageNames = [];
-                            const imgs = Array.from(node.querySelectorAll('img'));
+                            let imgs = Array.from(node.querySelectorAll('img')).filter(isTurnElementValid);
                             if (imgs.length === 0 && node.parentElement) {
-                                const parentImgs = node.parentElement.querySelectorAll('img');
+                                const parentImgs = Array.from(node.parentElement.querySelectorAll('img')).filter(isTurnElementValid);
                                 parentImgs.forEach(pi => {
                                     if (!imgs.includes(pi)) imgs.push(pi);
                                 });
                             }
 
-                            // Also detect CSS background-image previews
-                            node.querySelectorAll('[style*="background-image"]').forEach(bgEl => {
-                                const bg = bgEl.style.backgroundImage || '';
-                                const match = bg.match(/url\(["']?(https?:\/\/[^"']+|blob:[^"']+|data:image\/[^"']+)["']?\)/i);
-                                if (match && !imgs.some(im => (im.src === match[1] || im.currentSrc === match[1]))) {
-                                    imgs.push({
-                                        src: match[1],
-                                        currentSrc: match[1],
-                                        naturalWidth: bgEl.clientWidth || 300,
-                                        naturalHeight: bgEl.clientHeight || 300,
-                                        getAttribute: () => 'background-image',
-                                        closest: () => null
-                                    });
-                                }
+                            // Detect CSS background-image previews inside this node or parent
+                            const bgSearchRoots = [node, ...(node.parentElement ? [node.parentElement] : [])];
+                            bgSearchRoots.forEach(bRoot => {
+                                bRoot.querySelectorAll('[style*="background-image"]').forEach(bgEl => {
+                                    if (!isTurnElementValid(bgEl)) return;
+                                    const bg = bgEl.style.backgroundImage || '';
+                                    const match = bg.match(/url\(["']?(https?:\/\/[^"']+|blob:[^"']+|data:image\/[^"']+)["']?\)/i);
+                                    if (match && !imgs.some(im => (im.src === match[1] || im.currentSrc === match[1]))) {
+                                        imgs.push({
+                                            src: match[1],
+                                            currentSrc: match[1],
+                                            naturalWidth: bgEl.clientWidth || 300,
+                                            naturalHeight: bgEl.clientHeight || 300,
+                                            getAttribute: () => 'background-image',
+                                            closest: () => null
+                                        });
+                                    }
+                                });
                             });
 
                             for (const img of imgs) {
@@ -425,12 +628,12 @@ document.addEventListener('DOMContentLoaded', () => {
                                 const src = img.currentSrc || img.src || '';
                                 const alt = (img.getAttribute('alt') || '').toLowerCase().trim();
 
-                                // Filter avatars safely: only match tiny icons or explicit profile/avatar markers
+                                // Safe avatar filter (DO NOT match button!)
                                 const isAvatar = (
                                     src.startsWith('data:image/svg') ||
                                     (img.closest && img.closest('[class*="avatar" i], [data-testid*="avatar" i]')) ||
                                     alt === 'user' || alt === 'chatgpt' || alt === 'avatar' || alt.includes('profile picture') ||
-                                    (w > 0 && w <= 36 && h > 0 && h <= 36)
+                                    (w > 0 && w <= 32 && h > 0 && h <= 32)
                                 );
 
                                 if (isAvatar || !src) continue;
@@ -450,6 +653,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                 if (src.startsWith('data:image')) {
                                     dataUrl = src;
                                 } else {
+                                    // Try canvas extraction
                                     try {
                                         const canvas = document.createElement('canvas');
                                         canvas.width = w || 400;
@@ -459,7 +663,8 @@ document.addEventListener('DOMContentLoaded', () => {
                                         dataUrl = canvas.toDataURL('image/png');
                                     } catch (_) {}
 
-                                    if (!dataUrl) {
+                                    // Direct in-page fetch fallback for OpenAI CDN cross-origin images
+                                    if (!dataUrl && (src.startsWith('http') || src.startsWith('blob:'))) {
                                         try {
                                             const resp = await fetch(src);
                                             const blob = await resp.blob();
@@ -484,32 +689,21 @@ document.addEventListener('DOMContentLoaded', () => {
                                 });
                             }
 
-                            // Extract File Attachments in User turns (ZIP, PDF, DOCX, etc.)
+                            // Extract File Attachments from genuine attachment cards/pills (NO raw text scanning!)
                             const turnFileNames = [];
-                            const fileBadges = node.querySelectorAll('[data-testid*="file"], [data-testid*="attachment"], [class*="attachment"], [class*="file-"], a[download], a[href*="/files/"], [class*="FileThumbnail"]');
+                            const fileBadges = Array.from(node.querySelectorAll('[data-testid*="file-attachment"], [data-testid*="attachment"], [class*="FileThumbnail"], [class*="attachment-card"], a[download]'));
                             fileBadges.forEach(b => {
+                                if (!isTurnElementValid(b)) return;
+                                if (b.closest('.markdown p, .markdown pre, code, .markdown li')) return;
                                 const badgeText = (b.innerText || b.getAttribute('title') || b.getAttribute('aria-label') || '').trim();
-                                const matches = badgeText.match(FILE_PATTERN);
-                                if (matches) {
-                                    matches.forEach(m => {
-                                        const clean = m.trim();
-                                        if (!turnFileNames.includes(clean)) turnFileNames.push(clean);
-                                    });
+                                const match = badgeText.match(/\b([a-zA-Z0-9_\-\.]+\.(zip|pdf|docx?|xlsx?|csv|json|tar|gz|rar|7z))\b/i);
+                                if (match) {
+                                    const cleanName = match[1].trim();
+                                    if (!turnFileNames.includes(cleanName)) {
+                                        turnFileNames.push(cleanName);
+                                    }
                                 }
                             });
-
-                            // Scan message text for files referenced or uploaded
-                            if (turnFileNames.length === 0 && isUser) {
-                                const allMatches = node.innerText.match(FILE_PATTERN);
-                                if (allMatches) {
-                                    allMatches.forEach(m => {
-                                        const clean = m.trim();
-                                        if (!turnFileNames.includes(clean) && clean.length > 4) {
-                                            turnFileNames.push(clean);
-                                        }
-                                    });
-                                }
-                            }
 
                             for (const fn of turnFileNames) {
                                 if (!sequentialFiles.some(f => f.name.toLowerCase() === fn.toLowerCase())) {
@@ -542,13 +736,6 @@ document.addEventListener('DOMContentLoaded', () => {
                                 }
                             }
 
-                            // Build turn string according to exact format:
-                            // User: ${Message}
-                            // Ai: ${Reply}
-                            // User: ${image name} + ${message}
-                            // Ai: ${Reply}
-                            // User: ${asks further more details}
-                            // Ai: ${further more justifications and researches with searched links} + ${generated/fetched image name}
                             const userAttachments = [...turnImageNames, ...turnFileNames];
                             let turnLine = '';
 
@@ -576,32 +763,9 @@ document.addEventListener('DOMContentLoaded', () => {
                             }
                         }
 
-                        // Global fallback check for file attachments anywhere on the page
-                        const globalFileElements = document.querySelectorAll('[data-testid*="attachment"], [data-testid*="file"], [class*="attachment"], [class*="FileThumbnail"]');
-                        globalFileElements.forEach(gfe => {
-                            const txt = (gfe.innerText || gfe.getAttribute('title') || '').trim();
-                            const gMatches = txt.match(FILE_PATTERN);
-                            if (gMatches) {
-                                gMatches.forEach(gm => {
-                                    const cleanName = gm.trim();
-                                    if (!sequentialFiles.some(f => f.name.toLowerCase() === cleanName.toLowerCase())) {
-                                        const ext = cleanName.split('.').pop().toLowerCase();
-                                        sequentialFiles.push({
-                                            name: cleanName,
-                                            type: typeMap[ext] || 'application/octet-stream',
-                                            dataUrl: null,
-                                            preview: `Session Attachment: ${cleanName}`,
-                                            turn_index: 1,
-                                            role: 'user'
-                                        });
-                                    }
-                                });
-                            }
-                        });
-
                         // Universal Fallback if no structured turns were caught
                         if (extractedTurns.length === 0) {
-                            const pEls = Array.from(document.querySelectorAll('main p, main pre, article p, article pre, .markdown'));
+                            const pEls = Array.from((mainContainer || document).querySelectorAll('p, pre, .markdown')).filter(isTurnElementValid);
                             if (pEls.length > 0) {
                                 const allText = pEls.map(p => p.innerText.trim()).filter(t => t.length > 5).join('\n\n');
                                 if (allText) {
@@ -613,6 +777,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         return {
                             ledger: extractedTurns.join('\n\n'),
                             files: sequentialFiles,
+                            url: pageUrl,
                             debug: {
                                 turnNodesCount: turnNodes.length,
                                 extractedTurnsCount: extractedTurns.length,
@@ -635,18 +800,18 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         if (!results || !results[0]) {
-            alert("No response received from the webpage script. Please refresh the ChatGPT tab and try again.");
+            alert("No response received from the webpage script. Please refresh the chat tab and try again.");
             return false;
         }
 
         const res = results[0].result;
         if (!res) {
-            alert("Empty result returned from page script. Debug info: " + JSON.stringify(results[0]));
+            alert("Empty result returned from page script.");
             return false;
         }
 
         if (res.error) {
-            alert("Page extraction error: " + res.error + "\n" + (res.stack || ''));
+            alert("Page extraction error: " + res.error);
             return false;
         }
 
@@ -675,38 +840,63 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
+        // Replace state with ONLY the active session assets and ledger
         chatLedgerEl.value = ledger;
         currentAttachedFiles = files || [];
         renderFileChips(currentAttachedFiles);
-        updateClearBtnVisibility();
 
         let detected = 'unknown';
-        const url = tab.url || '';
-        if (url.includes('chatgpt.com')) detected = 'chatgpt';
-        else if (url.includes('claude.ai')) detected = 'claude';
-        else if (url.includes('gemini.google.com')) detected = 'gemini';
+        const rawUrl = (res.url || tab.url || '');
+        if (rawUrl.includes('chatgpt.com')) detected = 'chatgpt';
+        else if (rawUrl.includes('claude.ai')) detected = 'claude';
+        else if (rawUrl.includes('gemini.google.com')) detected = 'gemini';
         currentSourcePlatform = detected;
 
-        await chrome.storage.local.set({
-            chatLedger: ledger,
-            attachedFiles: currentAttachedFiles,
-            sourcePlatform: detected
-        });
+        const canonicalUrl = rawUrl.split('?')[0].split('#')[0];
+        currentActiveUrl = canonicalUrl;
+        currentChatKey = getChatStorageKey(canonicalUrl);
+        currentSyncedUrl = currentActiveUrl;
 
+        // Persist strictly to this chat's scoped storage key
+        if (typeof chrome !== 'undefined' && chrome.storage && currentChatKey) {
+            const chatSave = {};
+            chatSave[currentChatKey] = {
+                url: currentActiveUrl,
+                ledger: ledger,
+                files: currentAttachedFiles,
+                platform: detected,
+                timestamp: Date.now()
+            };
+            await chrome.storage.local.set(chatSave);
+        }
+
+        updateActionButtonsState();
         return true;
     }
 
-    // "Sync Chat & Files" Button Handler
+    // "Sync Chat & Files" Button Handler (Always targets current active chat)
     syncChatBtn.addEventListener('click', async () => {
-        if (typeof chrome === 'undefined' || !chrome.tabs) {
-            alert("Chrome Extension API not available.");
+        const tab = await getActiveWebTab();
+        if (!tab) {
+            alert("No active tab detected. Please ensure an active chat page is open.");
             return;
         }
 
-        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-        if (!tab) {
-            alert("No active tab detected.");
-            return;
+        // Update active context pointers
+        const activeUrl = (tab.url || '').split('?')[0].split('#')[0];
+        currentActiveUrl = activeUrl;
+        currentChatKey = getChatStorageKey(activeUrl);
+
+        // Wipe out old loaded data before syncing fresh
+        chatLedgerEl.value = '';
+        currentAttachedFiles = [];
+        currentSyncedUrl = '';
+        renderFileChips([]);
+        chatSummaryContainer.classList.add('hidden');
+        updateActionButtonsState();
+
+        if (typeof chrome !== 'undefined' && chrome.storage && currentChatKey) {
+            await chrome.storage.local.remove([currentChatKey]);
         }
 
         syncChatBtn.textContent = 'Scrolling & Syncing...';
@@ -740,6 +930,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 Sync Chat & Files
             `;
             syncChatBtn.disabled = false;
+        } finally {
+            updateActionButtonsState();
         }
     });
 
@@ -778,27 +970,11 @@ document.addEventListener('DOMContentLoaded', () => {
         );
     }
 
-    // "Summarize Chat" button handler
+    // "Summarize Chat" Button Handler (Only enabled after sync)
     summarizeChatBtn.addEventListener('click', async () => {
         let text = chatLedgerEl.value.trim();
-
-        // If ledger is empty, sync from the active tab directly
-        if (!text) {
-            summarizeChatBtn.textContent = 'Syncing page...';
-            const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-            if (tab) {
-                await extractChatFromPage(tab);
-                text = chatLedgerEl.value.trim();
-            }
-        }
-
         if (!text && currentAttachedFiles.length === 0) {
-            alert("No chat conversation or files found. Please open an active chat on ChatGPT, Claude, or Gemini.");
-            summarizeChatBtn.innerHTML = `
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 4px;"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
-                Summarize Chat
-            `;
-            summarizeChatBtn.disabled = false;
+            alert("Please click 'Sync Chat & Files' first to load the active conversation.");
             return;
         }
 
@@ -810,6 +986,17 @@ document.addEventListener('DOMContentLoaded', () => {
             summaryContentEl.innerText = execSummary;
             chatSummaryContainer.classList.remove('hidden');
             chatSummaryContainer.scrollIntoView({ behavior: 'smooth' });
+
+            // Store summary in this chat's scoped cache
+            if (typeof chrome !== 'undefined' && chrome.storage && currentChatKey) {
+                chrome.storage.local.get([currentChatKey], (result) => {
+                    const existing = result[currentChatKey] || {};
+                    existing.summary = execSummary;
+                    const update = {};
+                    update[currentChatKey] = existing;
+                    chrome.storage.local.set(update);
+                });
+            }
         } catch (err) {
             alert("Summarization error: " + (err.message || "An issue occurred while summarizing."));
         } finally {
@@ -817,7 +1004,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 4px;"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
                 Summarize Chat
             `;
-            summarizeChatBtn.disabled = false;
+            updateActionButtonsState();
         }
     });
 
@@ -882,7 +1069,7 @@ document.addEventListener('DOMContentLoaded', () => {
             alert("Error initiating migration: " + error.message);
         } finally {
             activeBtn.textContent = originalBtnText;
-            activeBtn.disabled = false;
+            updateActionButtonsState();
         }
     }
 
